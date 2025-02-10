@@ -1,0 +1,288 @@
+Taxi For Sure (Ola cabs)
+
+create database Ola_cabs_db;
+use Ola_cabs_db;
+
+create table data
+(pickup_date date,
+pickup_time time,
+pickup_datetime    text,
+PickupArea    text,
+DropArea    text,
+Booking_id    text,
+Booking_type    text,
+Booking_mode    text,
+Driver_number    double,
+Service_status    text,
+Status    int,
+Fare    int,
+Distance    int,
+Confirmed_at text
+);
+
+select * from DATA LIMIT 2000;
+select * from localities LIMIT 2000;
+
+SET SQL_SAFE_UPDATEs = 0;
+
+ALTER TABLE data
+add Column pickup_dt datetime;
+
+ALTER TABLE data
+add Column confirmed_dt datetime;
+
+Update data
+SET pickup_dt = Str_To_Date(pickup_datetime,"%d-%m-%Y %H:%i");
+
+Update data
+SET confirmed_dt = Str_To_Date(confirmed_at,"%d-%m-%Y %H:%i");
+
+ALTER TABLE data
+drop Column Confirmed_at;
+
+ALTER TABLE data MODIFY pickup_dt datetime AFTER pickup_time;
+
+-- 1. Find hour of 'pickup' and 'confirmed_at' time, and make a column of weekday as "Sun,Mon, etc"next to pickup_datetime
+
+ALTER TABLE data
+add Column weekday text after pickup_dt;
+
+Update data
+SET weekday =
+(case
+    WHEN weekday(pickup_date) = 0 THEN "Monday"
+   WHEN weekday(pickup_date) = 1 THEN "Tuesday"
+   WHEN weekday(pickup_date) = 2 THEN "Wednesday"
+   WHEN weekday(pickup_date) = 3 THEN "Thursday"
+   WHEN weekday(pickup_date) = 4 THEN "Friday"
+   WHEN weekday(pickup_date) = 5 THEN "Saturday"
+   WHEN weekday(pickup_date) = 6 THEN "Sunday"
+    ELSE null
+end);
+
+select * from data;
+
+-- 2. Make a table with count of bookings with booking_type = p2p catgorized by booking mode as 'phone', 'online','app',etc                                            
+
+select booking_mode, count(*) as total_p2p
+from data
+where booking_type = "p2p"
+group by booking_mode;
+
+-- 3.    Create columns for pickup and drop ZONES (using Localities data containing Zone IDs against each area) and
+--         fill corresponding values against pick-area and drop_area, using Sheet'Localities'
+
+create view pickup_zone as
+select distinct l.zone_id as pickup_zone, d.pickupArea
+from data d
+inner join localities l
+on d.pickupArea = l.area
+order by pickup_zone;
+
+create view drop_zone as
+select distinct l.zone_id as drop_zone, d.dropArea
+from data d
+inner join localities l
+on d.dropArea = l.area
+order by drop_zone;
+
+-- 4. Find top 5 drop zones in terms of  average revenue
+
+select l.zone_id, ceil(avg(d.fare)) as avg_fare
+from data d
+inner join localities l
+on d.dropArea = l.area
+group by l.zone_id
+order by avg_fare desc
+limit 5;
+
+-- 5.    Find all unique driver numbers grouped by top 5 pickzones
+
+create view top5pickzone as
+select distinct l.zone_id as top_zone, sum(d.fare) as SumRevenue
+from data d
+inner join localities l
+on d.pickuparea = l.area
+group by l.zone_id
+order by SumRevenue desc
+limit 5;
+
+select distinct l.zone_id, d.Driver_number
+from data d
+inner join localities l
+on d.pickuparea = l.area
+where d.Driver_number is not null and
+l.zone_id in (select top_zone from top5pickzone)
+order by 1,2;
+
+
+-- 6.    Make a list of top 10 driver by driver numbers in terms of fare collected where service_status is done, done-issue
+
+select driver_number, sum(fare) as total_revenue
+from data
+where Service_status in ("done", "done-issue")
+group by driver_number
+order by sum(fare) desc
+limit 10;
+
+/*Case 4 - Solution*/
+Create database olacabs;
+
+
+/*Import the data csv tables using Table Data Import Wizard in MySQL workbench*/
+
+
+Use olacabs; /*Make the database default*/
+
+
+/*
+CREATE TABLE Data
+(pickup_date Char(100),
+pickup_time char(100),
+pickup_datetime char(100),
+PickupArea char(100),
+DropArea char(100),
+Booking_id char(100),
+Booking_type Char(100),
+Booking_mode char(100),
+Driver_number Char(100),
+Service_status Char(100),
+Status Char(100),
+Fare INT,
+Distance INT,
+Confirmed_at char(100)
+);
+*/
+
+
+SELECT * FROM Data;
+
+
+SELECT * FROM Localities;
+
+
+/*Q2*/
+SELECT Booking_mode, Count(*) as Cnt
+FROM data
+WHERE booking_type = "p2p"
+Group by Booking_mode;
+
+
+
+
+/*Q4 - Find top 5 drop zones in terms of  average revenue*/
+SELECT Zone_id, avg(fare) as AverageFare
+FROM Localities as L INNER JOIN Data as D
+ON L.Area = d.droparea
+Group by Zone_id
+Order By Avg(Fare) DESC
+Limit 5;
+
+
+select distinct Driver_number, `Pickup Area`, zone_id, sum(Fare) as sumFare
+ from data join localities on `Pickup Area`=Area
+ group by `Pickup Area`
+ order by sum(fare) desc
+ limit 5;
+
+
+SELECT zone_id, Sum(fare) as SumRevenue
+FROM Data as D, Localities as L
+WHERE D.pickuparea = L.Area
+Group By Zone_id
+Order By 2 DESC
+Limit 5;
+
+
+/*Q5 - Using View*/
+Create View Top5PickZones As
+SELECT zone_id, Sum(fare) as SumRevenue
+FROM Data as D, Localities as L
+WHERE D.pickuparea = L.Area
+Group By Zone_id
+Order By 2 DESC
+Limit 5;
+
+
+SELECT Distinct zone_id, driver_number
+FROM localities as L INNER JOIN Data as D ON L.Area = D.PickupArea
+WHERE zone_id IN (Select Zone_id FROM Top5PickZones)
+order by 1, 2;
+
+
+SELECT Distinct Zone_id, driver_number
+FROM (
+SELECT DISTINCT Zone_id, pickuparea
+FROM Localities as L INNER JOIN Data as D
+ON L.Area = d.pickuparea
+Group by Zone_id
+Order By Sum(Fare) DESC
+Limit 5) As TPZ, Data as d
+WHERE TPZ.pickuparea = d.pickuparea;
+
+
+
+
+
+
+
+
+/*Q7 - Make a hourwise table of bookings for week between Nov01-Nov-07
+and highlight the hours with more than average no.of bookings day wise*/
+
+
+/*Part 1*/
+SELECT * FROM data;
+
+
+-- hour-wish bookings for every day -- part 1
+select day(str_to_date(pickup_date, '%Y-%m-%d')) as days,
+        hour(str_to_date(pickup_time, '%H:%i:%s')) as hrs,
+        count(*) as bookings
+from data
+where str_to_date(pickup_date, '%Y-%m-%d') between '2013-11-01' and '2013-11-07'
+group by 1,2
+order by 1;
+
+
+-- days-wish hourly avg bookings -- part 2
+with cte as (
+select days, avg(bookings) over (partition by days) as avg_day_bookings
+from
+(select day(str_to_date(pickup_date, '%Y-%m-%d')) as days,
+        hour(str_to_date(pickup_time, '%H:%i:%s')) as hrs,
+        count(*) as bookings
+from data
+where str_to_date(pickup_date, '%Y-%m-%d') between '2013-11-01' and '2013-11-07'
+group by 1, 2) as temp1)
+select days, round(avg(avg_day_bookings)) as day_wish_hr_avg
+from cte
+group by days;
+
+-- combined of part1 and part2
+with out_cte1 as
+(select day(str_to_date(pickup_date, '%Y-%m-%d')) as days,
+    hour(str_to_date(pickup_time, '%H:%i:%s')) as hrs,
+    count(*) as bookings
+from data
+where str_to_date(pickup_date, '%Y-%m-%d') between '2013-11-01' and '2013-11-07'
+group by 1,2
+order by 1),
+
+out_cte2 as
+(with cte as (
+select days, avg(bookings) over (partition by days) as avg_day_bookings
+from
+(select day(str_to_date(pickup_date, '%Y-%m-%d')) as days, hour(str_to_date(pickup_time, '%H:%i:%s')) as hrs, count(*) as bookings
+from data
+where str_to_date(pickup_date, '%Y-%m-%d') between '2013-11-01' and '2013-11-07'
+group by 1, 2) as temp1)
+select days, round(avg(avg_day_bookings)) as day_wish_hr_avg
+from cte
+group by days)
+
+select *
+from out_cte1
+join out_cte2
+using (days)
+where bookings >= day_wish_hr_avg;
